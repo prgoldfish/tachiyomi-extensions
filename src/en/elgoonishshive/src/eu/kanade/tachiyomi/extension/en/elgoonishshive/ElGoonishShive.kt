@@ -30,17 +30,37 @@ class ElGoonishShive : ParsedHttpSource() {
     private var counter = 1
 
     override fun fetchPopularManga(page: Int): Observable<MangasPage> {
-        val manga = SManga.create().apply {
+        val egs = SManga.create().apply {
             title = "El Goonish Shive"
             artist = "Dan Shive"
             author = "Dan Shive"
             status = SManga.ONGOING
             url = "/comic/archive"
             description = "A strange comic about a group of teenagers and the bizarre, often supernatural, situations that they face. Includes a continuing storyline with non-linear joke comics on the side. WARNING: Often ignores the laws of Physics."
-            thumbnail_url = "https://i.redd.it/jrx7b7nl1dd21.png"
+            thumbnail_url = "https://hiveworkscomics.com/frontboxes/300x250_EGS.png"
         }
 
-        return Observable.just(MangasPage(arrayListOf(manga), false))
+        val egsnp = SManga.create().apply {
+            title = "El Goonish Shive: Newspaper"
+            artist = "Dan Shive"
+            author = "Dan Shive"
+            status = SManga.ONGOING
+            url = "/egsnp/archive"
+            description = "A sub-comic of El Goonish Shive"
+            thumbnail_url = "https://www.egscomics.com/images/logo2.gif"
+        }
+
+        val sketchbook = SManga.create().apply {
+            title = "El Goonish Shive: Sketchbook"
+            artist = "Dan Shive"
+            author = "Dan Shive"
+            status = SManga.ONGOING
+            url = "/sketchbook/archive"
+            description = "A collection of sketches by the author of EGS"
+            thumbnail_url = "https://www.egscomics.com/images/logo.png"
+        }
+
+        return Observable.just(MangasPage(arrayListOf(egs, egsnp, sketchbook), false))
     }
 
     override fun fetchSearchManga(page: Int, query: String, filters: FilterList): Observable<MangasPage> = Observable.just(MangasPage(emptyList(), false))
