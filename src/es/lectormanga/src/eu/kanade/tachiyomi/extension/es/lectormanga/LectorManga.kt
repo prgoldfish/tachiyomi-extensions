@@ -2,9 +2,9 @@ package eu.kanade.tachiyomi.extension.es.lectormanga
 
 import android.app.Application
 import android.content.SharedPreferences
-import eu.kanade.tachiyomi.lib.ratelimit.SpecificHostRateLimitInterceptor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.asObservableSuccess
+import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.Filter
 import eu.kanade.tachiyomi.source.model.FilterList
@@ -52,42 +52,32 @@ class LectorManga : ConfigurableSource, ParsedHttpSource() {
         Injekt.get<Application>().getSharedPreferences("source_$id", 0x0000)
     }
 
-    private val webRateLimitInterceptor = SpecificHostRateLimitInterceptor(
-        baseUrl.toHttpUrlOrNull()!!,
-        preferences.getString(WEB_RATELIMIT_PREF, WEB_RATELIMIT_PREF_DEFAULT_VALUE)!!.toInt(), 60
-    )
-
-    private val imageCDNRateLimitInterceptor = SpecificHostRateLimitInterceptor(
-        imageCDNUrls[0].toHttpUrlOrNull()!!,
-        preferences.getString(IMAGE_CDN_RATELIMIT_PREF, IMAGE_CDN_RATELIMIT_PREF_DEFAULT_VALUE)!!.toInt(), 60
-    )
-
-    private val imageCDNRateLimitInterceptor1 = SpecificHostRateLimitInterceptor(
-        imageCDNUrls[1].toHttpUrlOrNull()!!,
-        preferences.getString(IMAGE_CDN_RATELIMIT_PREF, IMAGE_CDN_RATELIMIT_PREF_DEFAULT_VALUE)!!.toInt(), 60
-    )
-
-    private val imageCDNRateLimitInterceptor2 = SpecificHostRateLimitInterceptor(
-        imageCDNUrls[2].toHttpUrlOrNull()!!,
-        preferences.getString(IMAGE_CDN_RATELIMIT_PREF, IMAGE_CDN_RATELIMIT_PREF_DEFAULT_VALUE)!!.toInt(), 60
-    )
-
-    private val imageCDNRateLimitInterceptor3 = SpecificHostRateLimitInterceptor(
-        imageCDNUrls[3].toHttpUrlOrNull()!!,
-        preferences.getString(IMAGE_CDN_RATELIMIT_PREF, IMAGE_CDN_RATELIMIT_PREF_DEFAULT_VALUE)!!.toInt(), 60
-    )
-
     override val client: OkHttpClient = network.client.newBuilder()
-        .addNetworkInterceptor(webRateLimitInterceptor)
-        .addNetworkInterceptor(imageCDNRateLimitInterceptor)
-        .addNetworkInterceptor(imageCDNRateLimitInterceptor1)
-        .addNetworkInterceptor(imageCDNRateLimitInterceptor2)
-        .addNetworkInterceptor(imageCDNRateLimitInterceptor3)
+        .rateLimitHost(
+            baseUrl.toHttpUrlOrNull()!!,
+            preferences.getString(WEB_RATELIMIT_PREF, WEB_RATELIMIT_PREF_DEFAULT_VALUE)!!.toInt(), 60
+        )
+        .rateLimitHost(
+            imageCDNUrls[0].toHttpUrlOrNull()!!,
+            preferences.getString(IMAGE_CDN_RATELIMIT_PREF, IMAGE_CDN_RATELIMIT_PREF_DEFAULT_VALUE)!!.toInt(), 60
+        )
+        .rateLimitHost(
+            imageCDNUrls[1].toHttpUrlOrNull()!!,
+            preferences.getString(IMAGE_CDN_RATELIMIT_PREF, IMAGE_CDN_RATELIMIT_PREF_DEFAULT_VALUE)!!.toInt(), 60
+        )
+        .rateLimitHost(
+            imageCDNUrls[2].toHttpUrlOrNull()!!,
+            preferences.getString(IMAGE_CDN_RATELIMIT_PREF, IMAGE_CDN_RATELIMIT_PREF_DEFAULT_VALUE)!!.toInt(), 60
+        )
+        .rateLimitHost(
+            imageCDNUrls[3].toHttpUrlOrNull()!!,
+            preferences.getString(IMAGE_CDN_RATELIMIT_PREF, IMAGE_CDN_RATELIMIT_PREF_DEFAULT_VALUE)!!.toInt(), 60
+        )
         .build()
 
     override fun popularMangaRequest(page: Int) = GET("$baseUrl/library?order_item=likes_count&order_dir=desc&type=&filter_by=title&page=$page", headers)
 
-    override fun popularMangaNextPageSelector() = ".pagination .page-item:not(.disabled) a[rel='next']"
+    override fun popularMangaNextPageSelector() = "a[rel='next']"
 
     override fun popularMangaSelector() = ".col-6 .card"
 
@@ -257,25 +247,26 @@ class LectorManga : ConfigurableSource, ParsedHttpSource() {
     }
 
     override fun pageListRequest(chapter: SChapter): Request {
-        val currentUrl = client.newCall(GET(chapter.url, headers)).execute().asJsoup().body().baseUri()
+        return GET(chapter.url, headers)
+    }
 
-        // Get /cascade instead of /paginate to get all pages at once
+    override fun pageListParse(document: Document): List<Page> = mutableListOf<Page>().apply {
+        val currentUrl = document.body().baseUri()
+
         val newUrl = if (getPageMethodPref() == PAGE_METHOD_PREF_CASCADE && currentUrl.contains(PAGE_METHOD_PREF_PAGINATED)) {
             currentUrl.substringBefore(PAGE_METHOD_PREF_PAGINATED) + PAGE_METHOD_PREF_CASCADE
         } else if (getPageMethodPref() == PAGE_METHOD_PREF_PAGINATED && currentUrl.contains(PAGE_METHOD_PREF_CASCADE)) {
             currentUrl.substringBefore(PAGE_METHOD_PREF_CASCADE) + PAGE_METHOD_PREF_PAGINATED
         } else currentUrl
 
-        return GET(newUrl, headers)
-    }
+        val doc = client.newCall(GET(newUrl, headers)).execute().asJsoup()
 
-    override fun pageListParse(document: Document): List<Page> = mutableListOf<Page>().apply {
         if (getPageMethodPref() == PAGE_METHOD_PREF_CASCADE) {
-            document.select("div.viewer-image-container img").forEach {
+            doc.select("div.viewer-image-container img").forEach {
                 add(
                     Page(
                         size,
-                        document.baseUri(),
+                        doc.baseUri(),
                         it.let {
                             if (it.hasAttr("data-src")) it.attr("abs:data-src")
                             else it.attr("abs:src")
@@ -284,7 +275,7 @@ class LectorManga : ConfigurableSource, ParsedHttpSource() {
                 )
             }
         } else {
-            val body = document.select("script:containsData(var dirPath)").first().data()
+            val body = doc.select("script:containsData(var dirPath)").first().data()
             val path = body.substringAfter("var dirPath = '").substringBefore("'")
 
             body.substringAfter("var images = JSON.parse('[")
@@ -292,7 +283,7 @@ class LectorManga : ConfigurableSource, ParsedHttpSource() {
                 .replace("\"", "")
                 .split(",")
                 .forEach {
-                    add(Page(size, document.baseUri(), path + it))
+                    add(Page(size, doc.baseUri(), path + it))
                 }
         }
     }
